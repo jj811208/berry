@@ -13,7 +13,7 @@ import zlib                                                             from 'zl
 
 import {Cache, CacheOptions}                                            from './Cache';
 import {Configuration}                                                  from './Configuration';
-import {Fetcher, FetchOptions}                                          from './Fetcher';
+import {Fetcher, FetchOptions, FetchResult}                             from './Fetcher';
 import {Installer, BuildDirective, BuildType, InstallStatus}            from './Installer';
 import {LegacyMigrationResolver}                                        from './LegacyMigrationResolver';
 import {Linker, LinkOptions}                                            from './Linker';
@@ -986,6 +986,8 @@ export class Project {
 
     const limit = pLimit(FETCHER_CONCURRENCY);
 
+    const hasAfterDependencyFetchedHook = this.configuration.checkHookExisted(`afterDependencyFetched`);
+
     await report.startCacheReport(async () => {
       await miscUtils.allSettledSafe(locatorHashes.map(locatorHash => limit(async () => {
         const pkg = this.storedPackages.get(locatorHash);
@@ -997,7 +999,18 @@ export class Project {
 
         let fetchResult;
         try {
-          fetchResult = await fetcher.fetch(pkg, fetcherOptions);
+          fetchResult = await fetcher.fetch(pkg, fetcherOptions) as (FetchResult & {target: PortablePath});
+
+          if (hasAfterDependencyFetchedHook) {
+            const isChecksumChange = fetchResult.checksum !== this.storedChecksums.get(pkg.locatorHash);
+            const isDependencyRemoved = !fetchResult.checksum;
+            if (isChecksumChange && !isDependencyRemoved) {
+              const manifest = await Manifest.find(fetchResult.prefixPath, {baseFs: fetchResult.packageFs});
+              await this.configuration.triggerHook(hooks => {
+                return hooks.afterDependencyFetched;
+              }, this.configuration, manifest, fetchResult);
+            }
+          }
         } catch (error) {
           error.message = `${structUtils.prettyLocator(this.configuration, pkg)}: ${error.message}`;
           report.reportExceptionOnce(error);
