@@ -1748,4 +1748,14 @@ export class Configuration {
 
     return null;
   }
+
+  checkHookExisted (hookName: keyof Hooks) {
+    let existed = false;
+    for (const plugin of this.plugins.values()) {
+      if (!plugin?.hooks?.[hookName]) continue;
+      existed = true;
+      break;
+    }
+    return existed;
+  }
 }
