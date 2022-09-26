@@ -20,6 +20,7 @@ import {WorkspaceFetcher}                                                       
 import {WorkspaceResolver}                                                                              from './WorkspaceResolver';
 import * as folderUtils                                                                                 from './folderUtils';
 import * as formatUtils                                                                                 from './formatUtils';
+import * as httpUtils                                                                                   from './httpUtils';
 import * as miscUtils                                                                                   from './miscUtils';
 import * as nodeUtils                                                                                   from './nodeUtils';
 import * as semverUtils                                                                                 from './semverUtils';
@@ -1130,8 +1131,19 @@ export class Configuration {
           const userProvidedPath = typeof userPluginEntry !== `string`
             ? userPluginEntry.path
             : userPluginEntry;
+          const userProvidedSpec = userPluginEntry?.spec ?? ``;
 
           const pluginPath = ppath.resolve(cwd, npath.toPortablePath(userProvidedPath));
+
+          if (!await xfs.existsPromise(pluginPath)) {
+            if (!userProvidedSpec.match(/^https?:/))
+              throw new UsageError(`No plugin found in ${pluginPath}, this error usually occurs because .gitignore is not set up correctly, please try to delete the plugin from ${path} and reinstall it, then check https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored to set the correct .gitignore`);
+
+            const pluginBuffer = await httpUtils.get(userProvidedSpec, {configuration});
+            await xfs.mkdirPromise(ppath.dirname(pluginPath), {recursive: true});
+            await xfs.writeFilePromise(pluginPath, pluginBuffer);
+          }
+
           await importPlugin(pluginPath, path);
         }
       }
