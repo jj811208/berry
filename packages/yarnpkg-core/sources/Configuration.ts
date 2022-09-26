@@ -896,6 +896,10 @@ function getRcFilename() {
   return DEFAULT_RC_FILENAME as Filename;
 }
 
+function getDefault(object: any) {
+  return `default` in object ? object.default : object;
+}
+
 export enum ProjectLookup {
   LOCKFILE,
   MANIFEST,
@@ -1065,10 +1069,6 @@ export class Configuration {
     const plugins = new Map<string, Plugin>([
       [`@@core`, CorePlugin],
     ]);
-
-    const getDefault = (object: any) => {
-      return `default` in object ? object.default : object;
-    };
 
     if (pluginConfiguration !== null) {
       for (const request of pluginConfiguration.plugins.keys())
