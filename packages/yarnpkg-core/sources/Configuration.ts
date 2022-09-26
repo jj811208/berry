@@ -912,6 +912,7 @@ export type FindProjectOptions = {
   strict?: boolean;
   usePath?: boolean;
   useRc?: boolean;
+  useThirdPartyPlugin?: boolean;
 };
 
 export class Configuration {
@@ -989,7 +990,7 @@ export class Configuration {
    * way around).
    */
 
-  static async find(startingCwd: PortablePath, pluginConfiguration: PluginConfiguration | null, {lookup = ProjectLookup.LOCKFILE, strict = true, usePath = false, useRc = true}: FindProjectOptions = {}) {
+  static async find(startingCwd: PortablePath, pluginConfiguration: PluginConfiguration | null, {lookup = ProjectLookup.LOCKFILE, strict = true, usePath = false, useRc = true, useThirdPartyPlugin = true}: FindProjectOptions = {}) {
     const environmentSettings = getEnvironmentSettings();
 
     const rcFiles = await Configuration.findRcFiles(startingCwd);
@@ -1073,67 +1074,8 @@ export class Configuration {
     if (pluginConfiguration !== null) {
       for (const request of pluginConfiguration.plugins.keys())
         plugins.set(request, getDefault(pluginConfiguration.modules.get(request)));
-
-      const requireEntries = new Map();
-      for (const request of nodeUtils.builtinModules())
-        requireEntries.set(request, () => miscUtils.dynamicRequire(request));
-      for (const [request, embedModule] of pluginConfiguration.modules)
-        requireEntries.set(request, () => embedModule);
-
-      const dynamicPlugins = new Set();
-
-      const importPlugin = async (pluginPath: PortablePath, source: string) => {
-        const {factory, name} = miscUtils.dynamicRequire(pluginPath);
-        if (!factory)
-          return;
-
-        // Prevent plugin redefinition so that the ones declared deeper in the
-        // filesystem always have precedence over the ones below.
-        if (dynamicPlugins.has(name))
-          return;
-
-        const pluginRequireEntries = new Map(requireEntries);
-        const pluginRequire = (request: string) => {
-          if (pluginRequireEntries.has(request)) {
-            return pluginRequireEntries.get(request)();
-          } else {
-            throw new UsageError(`This plugin cannot access the package referenced via ${request} which is neither a builtin, nor an exposed entry`);
-          }
-        };
-
-        const plugin = await miscUtils.prettifyAsyncErrors(async () => {
-          return getDefault(await factory(pluginRequire));
-        }, message => {
-          return `${message} (when initializing ${name}, defined in ${source})`;
-        });
-
-        requireEntries.set(name, () => plugin);
-
-        dynamicPlugins.add(name);
-        plugins.set(name, plugin);
-      };
-
-      if (environmentSettings.plugins) {
-        for (const userProvidedPath of environmentSettings.plugins.split(`;`)) {
-          const pluginPath = ppath.resolve(startingCwd, npath.toPortablePath(userProvidedPath));
-          await importPlugin(pluginPath, `<environment>`);
-        }
-      }
-
-      for (const {path, cwd, data} of rcFiles) {
-        if (!useRc)
-          continue;
-        if (!Array.isArray(data.plugins))
-          continue;
-
-        for (const userPluginEntry of data.plugins) {
-          const userProvidedPath = typeof userPluginEntry !== `string`
-            ? userPluginEntry.path
-            : userPluginEntry;
-
-          const pluginPath = ppath.resolve(cwd, npath.toPortablePath(userProvidedPath));
-          await importPlugin(pluginPath, path);
-        }
+      if (useThirdPartyPlugin) {
+        await configuration.useThirdPartyPlugin(pluginConfiguration, {useRc});
       }
     }
 
@@ -1327,6 +1269,77 @@ export class Configuration {
 
       this.settings.set(name, definition);
       this.values.set(name, getDefaultValue(this, definition));
+    }
+  }
+
+  async useThirdPartyPlugin(pluginConfiguration: PluginConfiguration, {useRc = true}: {useRc?: boolean } = {}) {
+    const environmentSettings = getEnvironmentSettings();
+    const rcFiles = await Configuration.findRcFiles(this.startingCwd);
+    const plugins = new Map<string, Plugin>([]);
+    const requireEntries = new Map();
+    for (const request of nodeUtils.builtinModules())
+      requireEntries.set(request, () => miscUtils.dynamicRequire(request));
+    for (const [request, embedModule] of pluginConfiguration.modules)
+      requireEntries.set(request, () => embedModule);
+
+    const dynamicPlugins = new Set();
+
+    const importPlugin = async (pluginPath: PortablePath, source: string) => {
+      const {factory, name} = miscUtils.dynamicRequire(pluginPath);
+      if (!factory)
+        return;
+
+      // Prevent plugin redefinition so that the ones declared deeper in the
+      // filesystem always have precedence over the ones below.
+      if (dynamicPlugins.has(name))
+        return;
+
+      const pluginRequireEntries = new Map(requireEntries);
+      const pluginRequire = (request: string) => {
+        if (pluginRequireEntries.has(request)) {
+          return pluginRequireEntries.get(request)();
+        } else {
+          throw new UsageError(`This plugin cannot access the package referenced via ${request} which is neither a builtin, nor an exposed entry`);
+        }
+      };
+
+      const plugin = await miscUtils.prettifyAsyncErrors(async () => {
+        return getDefault(await factory(pluginRequire));
+      }, message => {
+        return `${message} (when initializing ${name}, defined in ${source})`;
+      });
+
+      requireEntries.set(name, () => plugin);
+
+      dynamicPlugins.add(name);
+      plugins.set(name, plugin);
+    };
+
+    if (environmentSettings.plugins) {
+      for (const userProvidedPath of environmentSettings.plugins.split(`;`)) {
+        const pluginPath = ppath.resolve(this.startingCwd, npath.toPortablePath(userProvidedPath));
+        await importPlugin(pluginPath, `<environment>`);
+      }
+    }
+
+    for (const {path, cwd, data} of rcFiles) {
+      if (!useRc)
+        continue;
+      if (!Array.isArray(data.plugins))
+        continue;
+
+      for (const userPluginEntry of data.plugins) {
+        const userProvidedPath = typeof userPluginEntry !== `string`
+          ? userPluginEntry.path
+          : userPluginEntry;
+
+        const pluginPath = ppath.resolve(cwd, npath.toPortablePath(userProvidedPath));
+        await importPlugin(pluginPath, path);
+      }
+    }
+
+    for (const [name, plugin] of plugins) {
+      this.activatePlugin(name, plugin);
     }
   }
 
