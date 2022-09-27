@@ -66,10 +66,17 @@ export async function main({binaryVersion, pluginConfiguration}: {binaryVersion:
     if (!ignoreNode && !semverUtils.satisfiesWithPrereleases(version, range))
       throw new UsageError(`This tool requires a Node version compatible with ${range} (got ${version}). Upgrade Node, or set \`YARN_IGNORE_NODE=1\` in your environment.`);
 
+    // We register those third-party plugin commands in this file according to `.yarnrc.yml`,
+    // but in some cases the user's `.yarn/plugins` and `.yarnrc.yml` do not match up,
+    // we would like users to use `yarn install` to try to install missing plugins.
+    // detail: https://github.com/yarnpkg/berry/issues/4464
+    const isInstalling = process.argv.slice(2).length === 0 || process.argv.slice(2).includes(`install`);
+
     // Since we only care about a few very specific settings (yarn-path and ignore-path) we tolerate extra configuration key.
     // If we didn't, we wouldn't even be able to run `yarn config` (which is recommended in the invalid config error message)
     const configuration = await Configuration.find(npath.toPortablePath(process.cwd()), pluginConfiguration, {
       usePath: true,
+      useThirdPartyPlugin: !isInstalling,
       strict: false,
     });
 
