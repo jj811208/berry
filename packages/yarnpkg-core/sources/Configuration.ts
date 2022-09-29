@@ -1075,7 +1075,15 @@ export class Configuration {
       for (const request of pluginConfiguration.plugins.keys())
         plugins.set(request, getDefault(pluginConfiguration.modules.get(request)));
       if (useThirdPartyPlugin) {
-        await configuration.useThirdPartyPlugin(pluginConfiguration, {useRc});
+        try {
+          await configuration.useThirdPartyPlugin(pluginConfiguration, {useRc});
+        } catch (err) {
+          if (err.code === `MODULE_NOT_FOUND`) {
+            throw new UsageError(`There are some plugins missing, please run \`yarn install\` to reinstall it`);
+          } else {
+            throw err;
+          }
+        }
       }
     }
 
