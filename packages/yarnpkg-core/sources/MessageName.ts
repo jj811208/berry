@@ -94,6 +94,9 @@ export enum MessageName {
   NETWORK_DISABLED = 80,
   NETWORK_UNSAFE_HTTP = 81,
   RESOLUTION_FAILED = 82,
+  PLUGIN_NOT_FOUND = 83,
+  REFETCH_PLUGIN_FAILED = 84,
+  GITIGNORE_INFO = 85,
 }
 
 export function stringifyMessageName(name: MessageName | number): string {

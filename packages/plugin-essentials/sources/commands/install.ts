@@ -1,10 +1,10 @@
-import {BaseCommand, WorkspaceRequiredError}                                                             from '@yarnpkg/cli';
-import {Configuration, Cache, MessageName, Project, ReportError, StreamReport, formatUtils, InstallMode} from '@yarnpkg/core';
-import {xfs, ppath, Filename}                                                                            from '@yarnpkg/fslib';
-import {parseSyml, stringifySyml}                                                                        from '@yarnpkg/parsers';
-import CI                                                                                                from 'ci-info';
-import {Command, Option, Usage, UsageError}                                                              from 'clipanion';
-import * as t                                                                                            from 'typanion';
+import {BaseCommand, WorkspaceRequiredError}                                                                        from '@yarnpkg/cli';
+import {Configuration, Cache, MessageName, Project, ReportError, StreamReport, formatUtils, InstallMode, httpUtils} from '@yarnpkg/core';
+import {xfs, ppath, Filename, npath}                                                                                from '@yarnpkg/fslib';
+import {parseSyml, stringifySyml}                                                                                   from '@yarnpkg/parsers';
+import CI                                                                                                           from 'ci-info';
+import {Command, Option, Usage, UsageError}                                                                         from 'clipanion';
+import * as t                                                                                                       from 'typanion';
 
 // eslint-disable-next-line arca/no-default-export
 export default class YarnCommand extends BaseCommand {
@@ -101,7 +101,48 @@ export default class YarnCommand extends BaseCommand {
   networkTimeout = Option.String(`--network-timeout`, {hidden: true});
 
   async execute() {
-    const configuration = await Configuration.find(this.context.cwd, this.context.plugins);
+    const configuration = await Configuration.find(this.context.cwd, this.context.plugins, {useThirdPartyPlugin: false});
+
+    const pluginReport = await StreamReport.start({
+      configuration,
+      json: this.json,
+      stdout: this.context.stdout,
+      includeFooter: false,
+    }, async report => {
+      const rcFiles = await Configuration.findRcFiles(this.context.cwd);
+      for (const {cwd, data} of rcFiles) {
+        if (!data.plugins) break;
+        for (const userPluginEntry of data.plugins) {
+          const userProvidedPath = typeof userPluginEntry !== `string`
+            ? userPluginEntry.path
+            : userPluginEntry;
+          const userProvidedSpec = userPluginEntry?.spec ?? ``;
+          const pluginPath = ppath.resolve(cwd, npath.toPortablePath(userProvidedPath));
+
+          if (!await xfs.existsPromise(pluginPath)) {
+            const prettyPluginName = formatUtils.pretty(configuration, ppath.basename(npath.toPortablePath(userProvidedPath), `.cjs`), formatUtils.Type.NAME);
+            const prettyGitIgnore = formatUtils.pretty(configuration, `.gitignore`, formatUtils.Type.NAME) ;
+            const prettyYarnrc = formatUtils.pretty(configuration, configuration.values.get(`rcFilename`), formatUtils.Type.NAME) ;
+            const prettyUrl = formatUtils.pretty(configuration, `https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored`, formatUtils.Type.URL) ;
+            report.reportInfo(MessageName.PLUGIN_NOT_FOUND, `Can't find the ${prettyPluginName} plugin, try to refetching...`);
+
+            if (!userProvidedSpec.match(/^https?:/)) {
+              report.reportError(MessageName.REFETCH_PLUGIN_FAILED, `refetch the ${prettyPluginName} plugin failure, the error usually occurs because ${prettyGitIgnore} is incorrect, please try to delete the plugin from ${prettyYarnrc} and reinstall it, then check ${prettyUrl} to set the correct ${prettyGitIgnore}`);
+              break;
+            } else {
+              report.reportInfoOnce(MessageName.GITIGNORE_INFO, `It looks like your ${prettyGitIgnore} is incorrect, please check ${prettyUrl} to set the correct ${prettyGitIgnore}`);
+              const pluginBuffer = await httpUtils.get(userProvidedSpec, {configuration});
+              await xfs.mkdirPromise(ppath.dirname(pluginPath), {recursive: true});
+              await xfs.writeFilePromise(pluginPath, pluginBuffer);
+            }
+          }
+        }
+      }
+    });
+    if (pluginReport.hasErrors())
+      return pluginReport.exitCode();
+
+    configuration.useThirdPartyPlugin(this.context.plugins);
 
     if (typeof this.inlineBuilds !== `undefined`)
       configuration.useWithSource(`<cli>`, {enableInlineBuilds: this.inlineBuilds}, configuration.startingCwd, {overwrite: true});
