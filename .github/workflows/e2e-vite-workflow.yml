@@ -1,0 +1,65 @@
+#
+on:
+  schedule:
+  - cron: '0 */4 * * *'
+  push:
+    branches:
+    - master
+  pull_request:
+    paths:
+    - .github/actions/prepare/action.yml
+    - .github/workflows/e2e-vite-workflow.yml
+    - scripts/e2e-setup-ci.sh
+
+name: 'E2E Vite'
+jobs:
+  chore:
+    name: 'Validating Vite'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@master
+
+    - uses: ./.github/actions/prepare
+
+    - name: 'Running the integration test (Vue 3)'
+      run: |
+        source scripts/e2e-setup-ci.sh
+        
+        yarn create vite my-vue-app --template vue
+        cd my-vue-app
+        yarn
+        yarn build
+
+    - name: 'Running the integration test (Vue 3 + TypeScript)'
+      run: |
+        source scripts/e2e-setup-ci.sh
+        
+        yarn create vite my-vue-ts-app --template vue-ts
+        cd my-vue-ts-app
+        yarn
+        yarn build
+      if: |
+        success() || failure()
+
+    - name: 'Running the integration test (React)'
+      run: |
+        source scripts/e2e-setup-ci.sh
+
+        yarn create vite my-react-app --template react
+        cd my-react-app
+        yarn
+        yarn build
+      if: |
+        success() || failure()
+
+    - name: 'Running the integration test (React + TypeScript)'
+      run: |
+        source scripts/e2e-setup-ci.sh
+
+        yarn create vite my-react-ts-app --template react-ts
+        cd my-react-ts-app
+        yarn
+        yarn build
+      if: |
+        success() || failure()
