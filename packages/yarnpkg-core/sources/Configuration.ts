@@ -883,6 +883,7 @@ function getEnvironmentSettings() {
     environmentSettings[key] = value;
   }
 
+  delete environmentSettings.rcFilename;
   return environmentSettings;
 }
 
@@ -990,7 +991,6 @@ export class Configuration {
 
   static async find(startingCwd: PortablePath, pluginConfiguration: PluginConfiguration | null, {lookup = ProjectLookup.LOCKFILE, strict = true, usePath = false, useRc = true}: FindProjectOptions = {}) {
     const environmentSettings = getEnvironmentSettings();
-    delete environmentSettings.rcFilename;
 
     const rcFiles = await Configuration.findRcFiles(startingCwd);
 
