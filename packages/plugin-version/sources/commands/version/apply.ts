@@ -107,13 +107,8 @@ export default class VersionApplyCommand extends BaseCommand {
       versionUtils.applyReleases(project, filteredReleases, {report});
 
       if (!this.dryRun) {
-        if (!prerelease) {
-          if (this.all) {
-            await versionUtils.clearVersionFiles(project);
-          } else {
-            await versionUtils.updateVersionFiles(project, [...filteredReleases.keys()]);
-          }
-        }
+        if (!prerelease)
+          await versionUtils.updateVersionFiles(project, [...filteredReleases.keys()]);
 
         report.reportSeparator();
 

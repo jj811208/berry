@@ -127,14 +127,6 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
   return candidateReleases;
 }
 
-export async function clearVersionFiles(project: Project) {
-  const deferredVersionFolder = project.configuration.get(`deferredVersionFolder`);
-  if (!xfs.existsSync(deferredVersionFolder))
-    return;
-
-  await xfs.removePromise(deferredVersionFolder);
-}
-
 export async function updateVersionFiles(project: Project, workspaces: Array<Workspace>) {
   const workspaceSet = new Set(workspaces);
 
@@ -172,7 +164,7 @@ export async function updateVersionFiles(project: Project, workspaces: Array<Wor
         ),
       ));
     } else {
-      await xfs.unlinkPromise(versionPath);
+      await xfs.removePromise(versionPath);
     }
   }
 }
