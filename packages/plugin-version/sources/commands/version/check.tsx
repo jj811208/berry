@@ -157,7 +157,7 @@ export default class VersionCheckCommand extends BaseCommand {
       );
     };
 
-    const getRelevancy = (releases: versionUtils.Releases) => {
+    const getRelevancy = (releases: versionUtils.ReleaseMap) => {
       // Now, starting from all the workspaces that changed, we'll detect
       // which ones are affected by the choices that the user picked. By
       // doing this we'll "forget" all choices that aren't relevant any
@@ -204,14 +204,13 @@ export default class VersionCheckCommand extends BaseCommand {
       };
     };
 
-    const useReleases = (): [versionUtils.Releases, (workspace: Workspace, decision: versionUtils.Decision) => void] => {
-      const [releases, setReleases] = useState<versionUtils.Releases>(() => new Map(versionFile.releases));
-
-      const setWorkspaceRelease = useCallback((workspace: Workspace, decision: versionUtils.Decision) => {
+    const useReleases = (): [versionUtils.ReleaseMap, (workspace: Workspace, release: versionUtils.NewRelease) => void] => {
+      const [releases, setReleases] = useState<versionUtils.ReleaseMap>(() => new Map(versionFile.releases));
+      const setWorkspaceRelease = useCallback((workspace: Workspace, release: versionUtils.NewRelease) => {
         const copy = new Map(releases);
 
-        if (decision !== versionUtils.Decision.UNDECIDED)
-          copy.set(workspace, decision);
+        if (release.strategy !== versionUtils.Decision.UNDECIDED)
+          copy.set(workspace, release);
         else
           copy.delete(workspace);
 
@@ -222,7 +221,7 @@ export default class VersionCheckCommand extends BaseCommand {
       return [releases, setWorkspaceRelease];
     };
 
-    const Stats = ({workspaces, releases}: {workspaces: Set<Workspace>, releases: versionUtils.Releases}) => {
+    const Stats = ({workspaces, releases}: {workspaces: Set<Workspace>, releases: versionUtils.ReleaseMap}) => {
       const parts = [];
       parts.push(`${workspaces.size} total`);
 
@@ -233,7 +232,7 @@ export default class VersionCheckCommand extends BaseCommand {
         const release = releases.get(workspace);
         if (typeof release === `undefined`) {
           remainingCount += 1;
-        } else if (release !== versionUtils.Decision.DECLINE) {
+        } else if (release.strategy !== versionUtils.Decision.DECLINE) {
           releaseCount += 1;
         }
       }
@@ -244,7 +243,7 @@ export default class VersionCheckCommand extends BaseCommand {
       return <Text color={`yellow`}>{parts.join(`, `)}</Text>;
     };
 
-    const App = ({useSubmit}: {useSubmit: (value: versionUtils.Releases) => void}) => {
+    const App = ({useSubmit}: {useSubmit: (value: versionUtils.ReleaseMap) => void}) => {
       const [releases, setWorkspaceRelease] = useReleases();
       useSubmit(releases);
 
@@ -295,7 +294,12 @@ export default class VersionCheckCommand extends BaseCommand {
             <Box marginTop={1} flexDirection={`column`}>
               <ScrollableItems active={focus % 2 === 0} radius={1} size={2} onFocusRequest={handleFocusRequest}>
                 {[...versionFile.releaseRoots].map(workspace => (
-                  <Undecided key={workspace.cwd} workspace={workspace} decision={releases.get(workspace) || versionUtils.Decision.UNDECIDED} setDecision={decision => setWorkspaceRelease(workspace, decision)} />
+                  <Undecided
+                    key={workspace.cwd}
+                    workspace={workspace}
+                    decision={releases.get(workspace)?.strategy || versionUtils.Decision.UNDECIDED}
+                    setDecision={decision => setWorkspaceRelease(workspace, {strategy: decision, changelog: releases.get(workspace)?.changelog || ``})}
+                  />
                 ))}
               </ScrollableItems>
             </Box>
@@ -320,7 +324,12 @@ export default class VersionCheckCommand extends BaseCommand {
               <Box marginTop={1} flexDirection={`column`}>
                 <ScrollableItems active={focus % 2 === 1} radius={2} size={2} onFocusRequest={handleFocusRequest}>
                   {[...dependentWorkspaces].map(workspace => (
-                    <Undecided key={workspace.cwd} workspace={workspace} decision={releases.get(workspace) || versionUtils.Decision.UNDECIDED} setDecision={decision => setWorkspaceRelease(workspace, decision)} />
+                    <Undecided
+                      key={workspace.cwd}
+                      workspace={workspace}
+                      decision={releases.get(workspace)?.strategy || versionUtils.Decision.UNDECIDED}
+                      setDecision={decision => setWorkspaceRelease(workspace, {strategy: decision, changelog: releases.get(workspace)?.changelog || ``})}
+                    />
                   ))}
                 </ScrollableItems>
               </Box>
@@ -330,17 +339,17 @@ export default class VersionCheckCommand extends BaseCommand {
       );
     };
 
-    const decisions = await renderForm<versionUtils.Releases>(App, {versionFile}, {
+    const releases = await renderForm<versionUtils.ReleaseMap>(App, {versionFile}, {
       stdin: this.context.stdin,
       stdout: this.context.stdout,
       stderr: this.context.stderr,
     });
-    if (typeof decisions === `undefined`)
+    if (!releases)
       return 1;
 
     versionFile.releases.clear();
 
-    for (const [workspace, decision] of decisions)
+    for (const [workspace, decision] of releases)
       versionFile.releases.set(workspace, decision);
 
     await versionFile.saveAll();

@@ -93,7 +93,7 @@ export default class VersionCommand extends BaseCommand {
 
     if (!deferred) {
       const releases = await versionUtils.resolveVersionFiles(project);
-      const storedVersion = releases.get(workspace);
+      const storedVersion = releases.get(workspace)?.strategy;
 
       if (typeof storedVersion !== `undefined` && releaseStrategy !== versionUtils.Decision.DECLINE) {
         const thisVersion = versionUtils.applyStrategy(workspace.manifest.version, releaseStrategy);

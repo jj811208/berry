@@ -20,7 +20,20 @@ export enum Decision {
 
 export type IncrementDecision = Exclude<Decision, Decision.UNDECIDED | Decision.DECLINE>;
 
-export type Releases = Map<Workspace, string>;
+type OldRelease = Decision | string;
+export type NewRelease = {
+  strategy: Decision | string; // decision or semver
+  changelog: string;
+};
+type Release = OldRelease | NewRelease;
+
+export type ReleaseMap = Map<Workspace, NewRelease>;
+
+export function makeNewRelease(release: Release): NewRelease {
+  if (typeof release === `string`)
+    return {strategy: release, changelog: ``};
+  return release;
+}
 
 export function validateReleaseDecision(decision: unknown): string {
   const semverDecision = semver.valid(decision as string);
@@ -37,7 +50,7 @@ export type VersionFile = {
   changedWorkspaces: Set<Workspace>;
 
   releaseRoots: Set<Workspace>;
-  releases: Releases;
+  releases: ReleaseMap;
 
   saveAll: () => Promise<void>;
 } & ({
@@ -53,7 +66,7 @@ export type VersionFile = {
 });
 
 export async function resolveVersionFiles(project: Project, {prerelease = null}: {prerelease?: string | null} = {}) {
-  let candidateReleases = new Map<Workspace, string>();
+  let candidateReleases: ReleaseMap = new Map();
 
   const deferredVersionFolder = project.configuration.get(`deferredVersionFolder`);
   if (!xfs.existsSync(deferredVersionFolder))
@@ -69,8 +82,10 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
     const versionContent = await xfs.readFilePromise(versionPath, `utf8`);
     const versionData = parseSyml(versionContent);
 
-    for (const [identStr, decision] of Object.entries(versionData.releases || {})) {
-      if (decision === Decision.DECLINE)
+    for (const [identStr, release] of Object.entries<Release>(versionData.releases || {})) {
+      const newRelease = makeNewRelease(release);
+
+      if (newRelease.strategy === Decision.DECLINE)
         continue;
 
       const ident = structUtils.parseIdent(identStr);
@@ -88,14 +103,12 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
       const baseVersion = workspace.manifest.raw.stableVersion ?? workspace.manifest.version;
 
       const candidateRelease = candidateReleases.get(workspace);
-      const suggestedRelease = applyStrategy(baseVersion, validateReleaseDecision(decision));
+      const suggestedRelease = makeNewRelease(applyStrategy(baseVersion, validateReleaseDecision(newRelease.strategy)));
 
-      if (suggestedRelease === null)
-        throw new Error(`Assertion failed: Expected ${baseVersion} to support being bumped via strategy ${decision}`);
-
-      const bestRelease = typeof candidateRelease !== `undefined`
-        ? semver.gt(suggestedRelease, candidateRelease) ? suggestedRelease : candidateRelease
-        : suggestedRelease;
+      const bestRelease = (() => {
+        if (!candidateRelease) return suggestedRelease;
+        return semver.gt(suggestedRelease.strategy, candidateRelease.strategy) ? suggestedRelease : candidateRelease;
+      })();
 
       candidateReleases.set(workspace, bestRelease);
     }
@@ -103,7 +116,11 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
 
   if (prerelease) {
     candidateReleases = new Map([...candidateReleases].map(([workspace, release]) => {
-      return [workspace, applyPrerelease(release, {current: workspace.manifest.version!, prerelease})];
+      const strategy = applyPrerelease(release.strategy, {current: workspace.manifest.version!, prerelease});
+      return [workspace, {
+        strategy,
+        changelog: release.changelog,
+      }];
     }));
   }
 
@@ -203,20 +220,22 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
     : `{}`;
 
   const versionData = parseSyml(versionContent);
-  const releaseStore: Releases = new Map();
+  const releaseStore: ReleaseMap = new Map();
 
   for (const identStr of versionData.declined || []) {
     const ident = structUtils.parseIdent(identStr);
     const workspace = project.getWorkspaceByIdent(ident);
 
-    releaseStore.set(workspace, Decision.DECLINE);
+    releaseStore.set(workspace, makeNewRelease(Decision.DECLINE));
   }
 
-  for (const [identStr, decision] of Object.entries(versionData.releases || {})) {
+  for (const [identStr, release] of Object.entries<Release>(versionData.releases || {})) {
+    const newRelease = makeNewRelease(release);
     const ident = structUtils.parseIdent(identStr);
     const workspace = project.getWorkspaceByIdent(ident);
+    newRelease.strategy = validateReleaseDecision(newRelease.strategy);
 
-    releaseStore.set(workspace, validateReleaseDecision(decision));
+    releaseStore.set(workspace, newRelease);
   }
 
   return {
@@ -239,7 +258,7 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
     releases: releaseStore,
 
     async saveAll() {
-      const releases: {[key: string]: string} = {};
+      const releases: {[key: string]: NewRelease} = {};
       const declined: Array<string> = [];
       const undecided: Array<string> = [];
 
@@ -250,11 +269,11 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
 
         const identStr = structUtils.stringifyIdent(workspace.locator);
 
-        const decision = releaseStore.get(workspace);
-        if (decision === Decision.DECLINE) {
+        const release = releaseStore.get(workspace);
+        if (release?.strategy === Decision.DECLINE) {
           declined.push(identStr);
-        } else if (typeof decision !== `undefined`) {
-          releases[identStr] = validateReleaseDecision(decision);
+        } else if (release?.strategy) {
+          releases[identStr] = {strategy: validateReleaseDecision(release.strategy), changelog: release.changelog};
         } else if (changedWorkspaces.has(workspace)) {
           undecided.push(identStr);
         }
@@ -303,15 +322,15 @@ export function getUndecidedWorkspaces(versionFile: VersionFile) {
 export function getUndecidedDependentWorkspaces(versionFile: Pick<VersionFile, 'project' | 'releases'>, {include = new Set()}: {include?: Set<Workspace>} = {}) {
   const undecided = [];
 
-  const bumpedWorkspaces = new Map(miscUtils.mapAndFilter([...versionFile.releases], ([workspace, decision]) => {
-    if (decision === Decision.DECLINE)
+  const bumpedWorkspaces = new Map(miscUtils.mapAndFilter([...versionFile.releases], ([workspace, {strategy}]) => {
+    if (strategy === Decision.DECLINE)
       return miscUtils.mapAndFilter.skip;
 
     return [workspace.anchoredLocator.locatorHash, workspace];
   }));
 
-  const declinedWorkspaces = new Map(miscUtils.mapAndFilter([...versionFile.releases], ([workspace, decision]) => {
-    if (decision !== Decision.DECLINE)
+  const declinedWorkspaces = new Map(miscUtils.mapAndFilter([...versionFile.releases], ([workspace, {strategy}]) => {
+    if (strategy !== Decision.DECLINE)
       return miscUtils.mapAndFilter.skip;
 
     return [workspace.anchoredLocator.locatorHash, workspace];
@@ -384,7 +403,7 @@ export function applyStrategy(version: string | null, strategy: string) {
   return nextVersion;
 }
 
-export function applyReleases(project: Project, newVersions: Map<Workspace, string>, {report}: {report: Report}) {
+export function applyReleases(project: Project, newReleaseMap: ReleaseMap, {report}: {report: Report}) {
   const allDependents: Map<Workspace, Array<[
     Workspace,
     AllDependencies,
@@ -408,7 +427,7 @@ export function applyReleases(project: Project, newVersions: Map<Workspace, stri
 
         // We only care about workspaces that depend on a workspace that will
         // receive a fresh update
-        if (!newVersions.has(workspace))
+        if (!newReleaseMap.has(workspace))
           continue;
 
         const dependents = miscUtils.getArrayWithDefault(allDependents, workspace);
@@ -420,11 +439,11 @@ export function applyReleases(project: Project, newVersions: Map<Workspace, stri
   // Now that we know which workspaces depend on which others, we can
   // proceed to update everything at once using our accumulated knowledge.
 
-  for (const [workspace, newVersion] of newVersions) {
+  for (const [workspace, newRelease] of newReleaseMap) {
     const oldVersion = workspace.manifest.version;
-    workspace.manifest.version = newVersion;
+    workspace.manifest.version = newRelease.strategy;
 
-    if (semver.prerelease(newVersion) === null)
+    if (semver.prerelease(newRelease.strategy) === null)
       delete workspace.manifest.raw.stableVersion;
     else if (!workspace.manifest.raw.stableVersion)
       workspace.manifest.raw.stableVersion = oldVersion;
@@ -433,8 +452,8 @@ export function applyReleases(project: Project, newVersions: Map<Workspace, stri
       ? structUtils.stringifyIdent(workspace.manifest.name)
       : null;
 
-    report.reportInfo(MessageName.UNNAMED, `${structUtils.prettyLocator(project.configuration, workspace.anchoredLocator)}: Bumped to ${newVersion}`);
-    report.reportJson({cwd: npath.fromPortablePath(workspace.cwd), ident: identString, oldVersion, newVersion});
+    report.reportInfo(MessageName.UNNAMED, `${structUtils.prettyLocator(project.configuration, workspace.anchoredLocator)}: Bumped to ${newRelease.strategy}`);
+    report.reportJson({cwd: npath.fromPortablePath(workspace.cwd), ident: identString, oldVersion, newVersion: newRelease.strategy});
 
     const dependents = allDependents.get(workspace);
     if (typeof dependents === `undefined`)
@@ -465,7 +484,7 @@ export function applyReleases(project: Project, newVersions: Map<Workspace, stri
         continue;
       }
 
-      let newRange = `${parsed[1]}${newVersion}`;
+      let newRange = `${parsed[1]}${newRelease.strategy}`;
       if (useWorkspaceProtocol)
         newRange = `${WorkspaceResolver.protocol}${newRange}`;
 
