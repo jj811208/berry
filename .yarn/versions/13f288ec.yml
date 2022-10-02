@@ -1,6 +1,10 @@
 releases:
-  "@yarnpkg/core": minor
-  "@yarnpkg/plugin-essentials": minor
+  "@yarnpkg/core":
+    changelog: core one
+    strategy: minor
+  "@yarnpkg/plugin-essentials":
+    changelog: plugin-essentials two
+    strategy: minor
 
 declined:
   - "@yarnpkg/plugin-compat"
@@ -32,3 +36,6 @@ declined:
   - "@yarnpkg/nm"
   - "@yarnpkg/pnpify"
   - "@yarnpkg/sdks"
+
+undecided:
+  - "@yarnpkg/core"

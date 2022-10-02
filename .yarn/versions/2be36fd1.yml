@@ -1,7 +1,11 @@
 releases:
-  "@yarnpkg/cli": minor
+  "@yarnpkg/cli":
+    changelog: cli two
+    strategy: minor
   "@yarnpkg/core": minor
-  "@yarnpkg/plugin-pack": minor
+  "@yarnpkg/plugin-pack":
+    changelog: plugin-pack one
+    strategy: minor
 
 declined:
   - "@yarnpkg/plugin-compat"

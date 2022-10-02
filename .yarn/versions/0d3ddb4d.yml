@@ -1,6 +1,10 @@
 releases:
-  "@yarnpkg/cli": patch
-  "@yarnpkg/plugin-essentials": patch
+  "@yarnpkg/cli":
+    changelog: cli three
+    strategy: minor
+  "@yarnpkg/plugin-essentials":
+    changelog: plugin-essentials three
+    strategy: minor
 
 declined:
   - "@yarnpkg/plugin-compat"

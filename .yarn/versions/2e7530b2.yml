@@ -1,6 +1,10 @@
 releases:
-  "@yarnpkg/cli": patch
-  "@yarnpkg/plugin-npm-cli": patch
+  "@yarnpkg/cli":
+    changelog: cli four
+    strategy: minor
+  "@yarnpkg/plugin-npm-cli":
+    changelog: plugin-npm-cli one
+    strategy: minor
 
 declined:
   - "@yarnpkg/plugin-compat"

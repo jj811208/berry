@@ -1,14 +1,31 @@
 releases:
-  "@yarnpkg/cli": major
-  "@yarnpkg/core": major
-  "@yarnpkg/plugin-essentials": major
+  "@yarnpkg/cli":
+    changelog: cli one
+    strategy: minor
+  "@yarnpkg/core":
+    changelog: core two
+    strategy: minor
+  "@yarnpkg/plugin-essentials":
+    changelog: plugin-essentials one
+    strategy: minor
   "@yarnpkg/plugin-exec": major
-  "@yarnpkg/plugin-file": major
+  "@yarnpkg/plugin-file":
+    changelog: |
+     \n plugin-file one
+     #### test md
+     ~fewf~
+     ```javascript
+      console.log(123);
+     ```
+     wefwef
+    strategy: minor
   "@yarnpkg/plugin-git": major
   "@yarnpkg/plugin-http": major
   "@yarnpkg/plugin-link": major
   "@yarnpkg/plugin-npm": major
-  "@yarnpkg/plugin-patch": major
+  "@yarnpkg/plugin-patch":
+    changelog: cccc
+    strategy: minor
 
 declined:
   - "@yarnpkg/plugin-compat"
