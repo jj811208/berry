@@ -65,6 +65,18 @@ export type VersionFile = {
   baseTitle: null;
 });
 
+interface VersionData {
+  releases: {[key: string]: Release};
+  declined: Array<string>;
+  undecided: Array<string>;
+}
+async function readVersionFile(versionFilePath: PortablePath): Promise<VersionData> {
+  if (await xfs.existsPromise(versionFilePath)) return {releases: {}, declined: [], undecided: []};
+  const versionContent = await xfs.readFilePromise(versionFilePath, `utf8`);
+  const versionData = parseSyml(versionContent) as VersionData;
+  return versionData;
+}
+
 export async function resolveVersionFiles(project: Project, {prerelease = null}: {prerelease?: string | null} = {}) {
   let candidateReleases: ReleaseMap = new Map();
 
@@ -79,10 +91,9 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
       continue;
 
     const versionPath = ppath.join(deferredVersionFolder, entry);
-    const versionContent = await xfs.readFilePromise(versionPath, `utf8`);
-    const versionData = parseSyml(versionContent);
+    const versionData = await readVersionFile(versionPath);
 
-    for (const [identStr, release] of Object.entries<Release>(versionData.releases || {})) {
+    for (const [identStr, release] of Object.entries<Release>(versionData.releases)) {
       const newRelease = makeNewRelease(release);
 
       if (newRelease.strategy === Decision.DECLINE)
@@ -141,8 +152,7 @@ export async function updateVersionFiles(project: Project, workspaces: Array<Wor
       continue;
 
     const versionPath = ppath.join(deferredVersionFolder, entry);
-    const versionContent = await xfs.readFilePromise(versionPath, `utf8`);
-    const versionData = parseSyml(versionContent);
+    const versionData = await readVersionFile(versionPath);
 
     const releases = versionData?.releases;
     if (!releases)
@@ -207,21 +217,17 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
     ? versionFiles[0]
     : ppath.join(deferredVersionFolder, `${hashUtils.makeHash(Math.random().toString()).slice(0, 8)}.yml` as Filename);
 
-  const versionContent = xfs.existsSync(versionPath)
-    ? await xfs.readFilePromise(versionPath, `utf8`)
-    : `{}`;
-
-  const versionData = parseSyml(versionContent);
+  const versionData = await readVersionFile(versionPath);
   const releaseStore: ReleaseMap = new Map();
 
-  for (const identStr of versionData.declined || []) {
+  for (const identStr of versionData.declined) {
     const ident = structUtils.parseIdent(identStr);
     const workspace = project.getWorkspaceByIdent(ident);
 
     releaseStore.set(workspace, makeNewRelease(Decision.DECLINE));
   }
 
-  for (const [identStr, release] of Object.entries<Release>(versionData.releases || {})) {
+  for (const [identStr, release] of Object.entries<Release>(versionData.releases)) {
     const newRelease = makeNewRelease(release);
     const ident = structUtils.parseIdent(identStr);
     const workspace = project.getWorkspaceByIdent(ident);
