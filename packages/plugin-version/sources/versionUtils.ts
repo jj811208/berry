@@ -73,6 +73,8 @@ interface VersionData {
 async function readVersionFile(versionFilePath: PortablePath): Promise<VersionData> {
   if (await xfs.existsPromise(versionFilePath)) return {releases: {}, declined: [], undecided: []};
   const versionContent = await xfs.readFilePromise(versionFilePath, `utf8`);
+
+  //todo md
   const versionData = parseSyml(versionContent) as VersionData;
   return versionData;
 }
@@ -87,7 +89,7 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
   const deferredVersionFiles = await xfs.readdirPromise(deferredVersionFolder);
 
   for (const entry of deferredVersionFiles) {
-    if (!entry.endsWith(`.yml`))
+    if (!entry.endsWith(`.yml`) && !entry.endsWith(`.md`))
       continue;
 
     const versionPath = ppath.join(deferredVersionFolder, entry);
@@ -138,6 +140,13 @@ export async function resolveVersionFiles(project: Project, {prerelease = null}:
   return candidateReleases;
 }
 
+type ChangelogMap = Map<string, {
+  name: string;
+  changelogList: Array<string>;
+  cwd: PortablePath;
+  version: string;
+}>;
+
 export async function updateVersionFiles(project: Project, workspaces: Array<Workspace>) {
   const workspaceSet = new Set(workspaces);
 
@@ -147,8 +156,10 @@ export async function updateVersionFiles(project: Project, workspaces: Array<Wor
 
   const deferredVersionFiles = await xfs.readdirPromise(deferredVersionFolder);
 
+  const changelogs: ChangelogMap = new Map();
+
   for (const entry of deferredVersionFiles) {
-    if (!entry.endsWith(`.yml`))
+    if (!entry.endsWith(`.yml`) && !entry.endsWith(`.md`))
       continue;
 
     const versionPath = ppath.join(deferredVersionFolder, entry);
@@ -162,7 +173,16 @@ export async function updateVersionFiles(project: Project, workspaces: Array<Wor
       const ident = structUtils.parseIdent(locatorStr);
       const workspace = project.tryWorkspaceByIdent(ident);
 
-      if (workspace === null || workspaceSet.has(workspace)) {
+      if (workspace === null) {
+        delete versionData.releases[locatorStr];
+      } else if (workspaceSet.has(workspace)) {
+        if (!changelogs.has(locatorStr))
+          changelogs.set(locatorStr, {name: locatorStr, version: workspace.manifest.version!, cwd: workspace.cwd, changelogList: []});
+
+        const {changelog} = makeNewRelease(versionData.releases[locatorStr]);
+        if (changelog)
+          changelogs.get(locatorStr)!.changelogList.push(changelog);
+
         delete versionData.releases[locatorStr];
       }
     }
@@ -177,6 +197,30 @@ export async function updateVersionFiles(project: Project, workspaces: Array<Wor
       await xfs.removePromise(versionPath);
     }
   }
+
+  if (changelogs.size > 0) {
+    await updateChangelogFiles(project, changelogs);
+  }
+}
+
+function getChangelogText(changelogMap: ChangelogMap) {
+  let changelogText = ``;
+  for (const [packageName, info] of changelogMap) {
+    if (info.changelogList.length > 0) {
+      changelogText += `## ${packageName} - ${info.version}\n\n`;
+      for (const changelog of info.changelogList)
+        changelogText += `- ${changelog}\n`;
+      changelogText += `\n`;
+    }
+  }
+  return changelogText;
+}
+
+async function updateChangelogFiles(project: Project, changelogMap: ChangelogMap) {
+  const changelogText = getChangelogText(changelogMap);
+  const changelogPath = `${project.cwd}/CHANGELOG.md` as PortablePath;
+  const currentChangelogText = await xfs.readFilePromise(changelogPath, `utf-8`);
+  await xfs.writeFilePromise(changelogPath, `${changelogText}${currentChangelogText}`);
 }
 
 export async function openVersionFile(project: Project, opts: {allowEmpty: true}): Promise<VersionFile>;
@@ -216,6 +260,7 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
   const versionPath = versionFiles.length === 1
     ? versionFiles[0]
     : ppath.join(deferredVersionFolder, `${hashUtils.makeHash(Math.random().toString()).slice(0, 8)}.yml` as Filename);
+    // : ppath.join(deferredVersionFolder, `${hashUtils.makeHash(Math.random().toString()).slice(0, 8)}.md` as Filename);
 
   const versionData = await readVersionFile(versionPath);
   const releaseStore: ReleaseMap = new Map();
@@ -279,6 +324,7 @@ export async function openVersionFile(project: Project, {allowEmpty = false}: {a
 
       await xfs.mkdirPromise(ppath.dirname(versionPath), {recursive: true});
 
+      //todo md
       await xfs.changeFilePromise(versionPath, stringifySyml(
         new stringifySyml.PreserveOrdering({
           releases: Object.keys(releases).length > 0 ? releases : undefined,

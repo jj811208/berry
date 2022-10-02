@@ -104,8 +104,10 @@ export default class VersionApplyCommand extends BaseCommand {
         return;
       }
 
-      versionUtils.applyReleases(project, filteredReleases, {report});
+      // 實際上改 package.json 的地方
+      await versionUtils.applyReleases(project, filteredReleases, {report});
 
+      // 實際上改 versionFiles 的地方
       if (!this.dryRun) {
         if (!prerelease)
           await versionUtils.updateVersionFiles(project, [...filteredReleases.keys()]);
