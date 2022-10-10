@@ -1,0 +1,46 @@
+{
+  "name": "@yarnpkg/plugin-validate-dependency",
+  "version": "3.0.0-rc.20",
+  "license": "BSD-2-Clause",
+  "main": "./sources/index.ts",
+  "exports": {
+    ".": "./sources/index.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@yarnpkg/cli": "workspace:^",
+    "@yarnpkg/fslib": "workspace:^",
+    "clipanion": "^3.2.0-rc.10",
+    "tslib": "^2.4.0"
+  },
+  "peerDependencies": {
+    "@yarnpkg/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@yarnpkg/builder": "workspace:^",
+    "@yarnpkg/core": "workspace:^"
+  },
+  "scripts": {
+    "postpack": "rm -rf lib",
+    "prepack": "run build:compile \"$(pwd)\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@github.com/yarnpkg/berry.git",
+    "directory": "packages/plugin-validate"
+  },
+  "publishConfig": {
+    "main": "./lib/index.js",
+    "exports": {
+      ".": "./lib/index.js",
+      "./package.json": "./package.json"
+    }
+  },
+  "files": [
+    "/lib/**/*"
+  ],
+  "engines": {
+    "node": ">=14.15.0"
+  },
+  "stableVersion": "2.3.0"
+}

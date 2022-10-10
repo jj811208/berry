@@ -7807,6 +7807,21 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@yarnpkg/plugin-validate-dependency@workspace:packages/plugin-validate-dependency":
+  version: 0.0.0-use.local
+  resolution: "@yarnpkg/plugin-validate-dependency@workspace:packages/plugin-validate-dependency"
+  dependencies:
+    "@yarnpkg/builder": "workspace:^"
+    "@yarnpkg/cli": "workspace:^"
+    "@yarnpkg/core": "workspace:^"
+    "@yarnpkg/fslib": "workspace:^"
+    clipanion: "npm:^3.2.0-rc.10"
+    tslib: "npm:^2.4.0"
+  peerDependencies:
+    "@yarnpkg/core": "workspace:^"
+  languageName: unknown
+  linkType: soft
+
 "@yarnpkg/plugin-version@workspace:^, @yarnpkg/plugin-version@workspace:packages/plugin-version":
   version: 0.0.0-use.local
   resolution: "@yarnpkg/plugin-version@workspace:packages/plugin-version"
