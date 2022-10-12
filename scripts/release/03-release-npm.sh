@@ -20,8 +20,7 @@ jq > "$TEMP_DIR"/package.json \
   "$REPO_DIR"/packages/yarnpkg-cli/package.json
 
 cp "$REPO_DIR"/packages/yarnpkg-cli/bin/yarn.js "$TEMP_DIR"/bin/yarn.js
-cp "$REPO_DIR"/scripts/dist-scripts/* "$TEMP_DIR"/bin
-chmod +x "$TEMP_DIR"/bin/*
+chmod +x "$TEMP_DIR"/bin/yarn.js
 
 cd "$TEMP_DIR"
 
