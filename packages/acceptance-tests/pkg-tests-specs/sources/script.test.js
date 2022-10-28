@@ -16,6 +16,15 @@ const configs = [{
 }];
 
 describe(`Scripts tests`, () => {
+  test.only(
+    `it should run scripts by correct directory`,
+    makeTemporaryEnv({scripts: {myScript: `mkdir foo && yarn --cwd ./foo -v`}}, async ({path, run, source}) => {
+      await run(`install`);
+
+      await expect(run(`run`, `myScript`)).resolves.not.toThrow();
+    }),
+  );
+
   test(
     `it should run scripts using the same Node than the one used by Yarn`,
     makeTemporaryEnv({scripts: {myScript: `node --version`}}, async ({path, run, source}) => {
