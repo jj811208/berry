@@ -69,29 +69,29 @@ function getNormalized(data: unknown, key: string): ConflictMarkerWithValue {
   return normalizeValue(rawValue);
 }
 
-type ResolvedRcFile = [string /* Source */, unknown];
+type ResolvedConfig = [string /* Source */, unknown];
 
-function resolvedRcFile(id: string, value: unknown): ResolvedRcFile {
+function resolvedConfig(id: string, value: unknown): ResolvedConfig {
   return [id, value];
 }
 
-function attachIdToTree(data: unknown, id: string): ResolvedRcFile {
+function attachIdToTree(data: unknown, id: string): ResolvedConfig {
   if (isObject(data)) {
     const result: Record<string, any> = {};
 
     for (const key of Object.keys(data))
       result[key] = attachIdToTree(data[key], id);
 
-    return resolvedRcFile(id, result);
+    return resolvedConfig(id, result);
   }
 
   if (Array.isArray(data))
-    return resolvedRcFile(id, data.map(item => attachIdToTree(item, id)));
+    return resolvedConfig(id, data.map(item => attachIdToTree(item, id)));
 
-  return resolvedRcFile(id, data);
+  return resolvedConfig(id, data);
 }
 
-function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, key: string, firstVisiblePosition: number, resolveAtPosition: number): ResolvedRcFile | null {
+function resolveValueAt(configs: Array<[string, unknown]>, path: Array<string>, key: string, firstVisiblePosition: number, resolveAtPosition: number): ResolvedConfig | null {
   let expectedValueType: ValueType | undefined;
 
   const relevantValues: Array<[string, unknown]> = [];
@@ -100,7 +100,7 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
   let currentResetPosition = 0;
 
   for (let t = resolveAtPosition - 1; t >= firstVisiblePosition; --t) {
-    const [id, data] = rcFiles[t];
+    const [id, data] = configs[t];
     const {onConflict, value} = getNormalized(data, key);
     const valueType = getValueType(value);
 
@@ -115,7 +115,7 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
     }
 
     if (valueType === ValueType.Literal)
-      return resolvedRcFile(id, value);
+      return resolvedConfig(id, value);
 
     relevantValues.unshift([id, value]);
 
@@ -136,14 +136,14 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
   const source = relevantValues.map(([relevantId]) => relevantId).join(`, `);
   switch (expectedValueType) {
     case ValueType.Array:
-      return resolvedRcFile(source, new Array<unknown>().concat(...relevantValues.map(([id, value]) => (value as Array<unknown>).map(item => attachIdToTree(item, id)))));
+      return resolvedConfig(source, new Array<unknown>().concat(...relevantValues.map(([id, value]) => (value as Array<unknown>).map(item => attachIdToTree(item, id)))));
 
     case ValueType.Object:{
       const conglomerate = Object.assign({}, ...relevantValues.map(([, value]) => value));
       const keys = Object.keys(conglomerate);
       const result: Record<string, unknown> = {};
 
-      const nextIterationValues = rcFiles.map<[string, unknown]>(([id, data]) => {
+      const nextIterationValues = configs.map<[string, unknown]>(([id, data]) => {
         return [id, getNormalized(data, key).value];
       });
 
@@ -163,7 +163,7 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
         }
       }
 
-      return resolvedRcFile(source, result);
+      return resolvedConfig(source, result);
     }
     default:
       throw new Error(`Assertion failed: Non-extendable value type`);
@@ -179,14 +179,14 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
 // contain both the ID of the configuration file that contributed the last
 // entry to the value and the final value.
 //
-export function resolveRcFiles(rcFiles: Array<[string, unknown]>) {
-  return resolveValueAt(rcFiles.map(([source, data]) => [source, {[`.`]: data}]), [], `.`, 0, rcFiles.length) as [string, Record<string, unknown>] | null;
+export function resolveConfigs(configs: Array<[string, unknown]>) {
+  return resolveValueAt(configs.map(([source, data]) => [source, {[`.`]: data}]), [], `.`, 0, configs.length) as [string, Record<string, unknown>] | null;
 }
 
-export function getValue(value: ResolvedRcFile) {
+export function getValue(value: ResolvedConfig) {
   return value[1];
 }
 
-export function getSource(value: ResolvedRcFile) {
+export function getSource(value: ResolvedConfig) {
   return value[0];
 }
