@@ -69,19 +69,10 @@ function getNormalized(data: unknown, key: string): ConflictMarkerWithValue {
   return normalizeValue(rawValue);
 }
 
-// symbol is used in runtime to identify this as a tuple type
-export const RESOLVED_RC_FILE = Symbol();
-
-type ResolvedRcFile = [string /* Source */, unknown, symbol];
+type ResolvedRcFile = [string /* Source */, unknown];
 
 function resolvedRcFile(id: string, value: unknown): ResolvedRcFile {
-  return [id, value, RESOLVED_RC_FILE];
-}
-
-function isResolvedRcFile(value: unknown): value is ResolvedRcFile {
-  if (!Array.isArray(value)) return false;
-
-  return value[2] === RESOLVED_RC_FILE;
+  return [id, value];
 }
 
 function attachIdToTree(data: unknown, id: string): ResolvedRcFile {
@@ -189,13 +180,13 @@ function resolveValueAt(rcFiles: Array<[string, unknown]>, path: Array<string>, 
 // entry to the value and the final value.
 //
 export function resolveRcFiles(rcFiles: Array<[string, unknown]>) {
-  return resolveValueAt(rcFiles.map(([source, data]) => [source, {[`.`]: data}]), [], `.`, 0, rcFiles.length) as [string, Record<string, unknown>, symbol] | null;
+  return resolveValueAt(rcFiles.map(([source, data]) => [source, {[`.`]: data}]), [], `.`, 0, rcFiles.length) as [string, Record<string, unknown>] | null;
 }
 
-export function getValue(value: unknown) {
-  return isResolvedRcFile(value) ? value[1] : value;
+export function getValue(value: ResolvedRcFile) {
+  return value[1];
 }
 
-export function getSource(value: unknown) {
-  return isResolvedRcFile(value) ? value[0] : null;
+export function getSource(value: ResolvedRcFile) {
+  return value[0];
 }
