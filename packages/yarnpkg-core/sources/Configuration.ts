@@ -674,39 +674,42 @@ export type ConfigurationDefinitionMap<V = ConfigurationValueMap> = {
   [K in keyof V]: DefinitionForType<V[K]>;
 };
 
-// There are two types of values
-// 1. ResolvedRcFile from `configUtils.resolveRcFiles`
-// 2. objects passed directly via `configuration.useWithSource` or `configuration.use`
-function parseValue(configuration: Configuration, path: string, valueBase: unknown, definition: SettingsDefinition, folder: PortablePath) {
-  const value = configUtils.getValue(valueBase);
+function parseValue(configuration: Configuration, path: string, config: configUtils.ResolvedConfig, definition: SettingsDefinition, folder: PortablePath) {
+  const value = configUtils.getValue(config);
+  const source = configUtils.getSource(config);
 
-  if (definition.isArray || (definition.type === SettingsType.ANY && Array.isArray(value))) {
-    if (!Array.isArray(value)) {
+  if (definition.isArray) {
+    if (source === `<environment>`) {
       return String(value).split(/,/).map(segment => {
-        return parseSingleValue(configuration, path, segment, definition, folder);
+        const config = [`<environment>`, segment] as configUtils.ResolvedConfig;
+        return parseSingleValue(configuration, path, config, definition, folder);
       });
-    } else {
+    }
+
+    if (Array.isArray(value))
       return value.map((sub, i) => parseSingleValue(configuration, `${path}[${i}]`, sub, definition, folder));
-    }
+
+    throw new Error(`應該要是 array 但不是`);
   } else {
-    if (Array.isArray(value)) {
-      throw new Error(`Non-array configuration settings "${path}" cannot be an array`);
-    } else {
-      return parseSingleValue(configuration, path, valueBase, definition, folder);
-    }
+    if (definition.type === SettingsType.ANY && Array.isArray(value))
+      return value.map((sub, i) => parseSingleValue(configuration, `${path}[${i}]`, sub, definition, folder));
+
+    if (!Array.isArray(value))
+      return parseSingleValue(configuration, path, config, definition, folder);
+
+    throw new Error(`Non-array configuration settings "${path}" cannot be an array`);
   }
 }
 
-function parseSingleValue(configuration: Configuration, path: string, valueBase: unknown, definition: SettingsDefinition, folder: PortablePath) {
-  const value = configUtils.getValue(valueBase);
-
+function parseSingleValue(configuration: Configuration, path: string, config: configUtils.ResolvedConfig, definition: SettingsDefinition, folder: PortablePath) {
+  const value = configUtils.getValue(config);
   switch (definition.type) {
     case SettingsType.ANY:
       return value;
     case SettingsType.SHAPE:
-      return parseShape(configuration, path, valueBase, definition, folder);
+      return parseShape(configuration, path, config, definition, folder);
     case SettingsType.MAP:
-      return parseMap(configuration, path, valueBase, definition, folder);
+      return parseMap(configuration, path, config, definition, folder);
   }
 
   if (value === null && !definition.isNullable && definition.default !== null)
@@ -730,9 +733,9 @@ function parseSingleValue(configuration: Configuration, path: string, valueBase:
       case SettingsType.ABSOLUTE_PATH:{
         let cwd = folder;
 
-        // singleValue's source should be a single file path, if it exists
-        const source = configUtils.getSource(valueBase);
-        if (source)
+        // singleValue's source should be a single file path, if it exists XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 這裡應該要改 因為現在來源不只是 RC File
+        const source = configUtils.getSource(config);
+        if (![`<environment>`, `<cli>`, `<compat>`, `<default>`].includes(source))
           cwd = ppath.resolve(source as PortablePath, `..` as PortablePath);
 
         return ppath.resolve(cwd, npath.toPortablePath(valueWithReplacedVariables));
@@ -758,8 +761,8 @@ function parseSingleValue(configuration: Configuration, path: string, valueBase:
   return interpreted;
 }
 
-function parseShape(configuration: Configuration, path: string, valueBase: unknown, definition: ShapeSettingsDefinition, folder: PortablePath) {
-  const value = configUtils.getValue(valueBase);
+function parseShape(configuration: Configuration, path: string, config: configUtils.ResolvedConfig, definition: ShapeSettingsDefinition, folder: PortablePath) {
+  const value = configUtils.getValue(config);
 
   if (typeof value !== `object` || Array.isArray(value))
     throw new UsageError(`Object configuration settings "${path}" must be an object`);
@@ -784,8 +787,8 @@ function parseShape(configuration: Configuration, path: string, valueBase: unkno
   return result;
 }
 
-function parseMap(configuration: Configuration, path: string, valueBase: unknown, definition: MapSettingsDefinition, folder: PortablePath) {
-  const value = configUtils.getValue(valueBase);
+function parseMap(configuration: Configuration, path: string, config: configUtils.ResolvedConfig, definition: MapSettingsDefinition, folder: PortablePath) {
+  const value = configUtils.getValue(config);
 
   const result = new Map<string, any>();
 
@@ -1031,8 +1034,6 @@ export class Configuration {
       }
     }
 
-    const resolvedRcFile = configUtils.resolveRcFiles(rcFiles.map(rcFile => [rcFile.path, rcFile.data]));
-
     // XXX: in fact, it is not useful, but in order not to change the parameters of useWithSource, temporarily put a thing to prevent errors.
     const resolvedRcFileCwd = `.` as PortablePath;
 
@@ -1068,10 +1069,7 @@ export class Configuration {
     configuration.importSettings(pickPrimaryCoreFields(coreDefinitions));
     configuration.useWithSource(`<environment>`, pickPrimaryCoreFields(environmentSettings), startingCwd, {strict: false});
 
-    if (resolvedRcFile) {
-      const [source, data] = resolvedRcFile;
-      configuration.useWithSource(source, pickPrimaryCoreFields(data), resolvedRcFileCwd, {strict: false});
-    }
+    configuration.useWithSource(rcFiles.map(rcFile => rcFile.path), rcFiles.map(rcFile => pickPrimaryCoreFields(rcFile.data)), resolvedRcFileCwd, {strict: false});
 
     if (usePath) {
       const yarnPath = configuration.get(`yarnPath`);
@@ -1116,10 +1114,7 @@ export class Configuration {
     configuration.importSettings(pickSecondaryCoreFields(coreDefinitions));
     configuration.useWithSource(`<environment>`, pickSecondaryCoreFields(environmentSettings), startingCwd, {strict});
 
-    if (resolvedRcFile) {
-      const [source, data] = resolvedRcFile;
-      configuration.useWithSource(source, pickSecondaryCoreFields(data), resolvedRcFileCwd, {strict});
-    }
+    configuration.useWithSource(rcFiles.map(rcFile => rcFile.path), rcFiles.map(rcFile => pickSecondaryCoreFields(rcFile.data)), resolvedRcFileCwd, {strict: false});
 
     // Now that the configuration object is almost ready, we need to load all
     // the configured plugins
@@ -1244,11 +1239,7 @@ export class Configuration {
 
     // load values of all plugin definitions
     configuration.useWithSource(`<environment>`, pickPluginFields(environmentSettings), startingCwd, {strict});
-
-    if (resolvedRcFile) {
-      const [source, data] = resolvedRcFile;
-      configuration.useWithSource(source, pickPluginFields(data), resolvedRcFileCwd, {strict});
-    }
+    configuration.useWithSource(rcFiles.map(rcFile => rcFile.path), rcFiles.map(rcFile => pickPluginFields(rcFile.data)), resolvedRcFileCwd, {strict: false});
 
     if (configuration.get(`enableGlobalCache`)) {
       configuration.values.set(`cacheFolder`, `${configuration.get(`globalFolder`)}/cache`);
@@ -1470,34 +1461,42 @@ export class Configuration {
     }
   }
 
-  useWithSource(source: string, data: {[key: string]: unknown}, folder: PortablePath, opts?: {strict?: boolean, overwrite?: boolean}) {
+  useWithSource(source: Array<string> | string, data: Array<{[key: string]: unknown}> | {[key: string]: unknown}, folder: PortablePath, opts?: {strict?: boolean}) {
     try {
       this.use(source, data, folder, opts);
     } catch (error) {
-      error.message += ` (in ${formatUtils.pretty(this, source, formatUtils.Type.PATH)})`;
+      // error.message += `useWithSource`;
+      error.message += ` (in ${formatUtils.pretty(this, source.toString(), formatUtils.Type.PATH)})`;
       throw error;
     }
   }
 
-  use(source: string, data: {[key: string]: unknown}, folder: PortablePath, {strict = true, overwrite = false}: {strict?: boolean, overwrite?: boolean} = {}) {
+  use(source: Array<string> | string, dataBase: Array<{[key: string]: unknown}> | {[key: string]: unknown}, folder: PortablePath, {strict = true}: {strict?: boolean} = {}) {
     strict = strict && this.get(`enableStrictSettings`);
+    const sourceList = Array.isArray(source) ? source : [source];
+    const dataList = Array.isArray(dataBase) ? dataBase : [dataBase];
+    if (sourceList.length !== dataList.length)
+      throw new UsageError(`參數錯誤`);
+
+    const config = configUtils.resolveConfigs(sourceList.map((source, i) => [source, dataList[i]]));
+    if (config === null) return;
+
+    const data = configUtils.getValue(config);
+    if (data === null || typeof data === `undefined`)
+      return;
 
     for (const key of [`enableStrictSettings`, ...Object.keys(data)]) {
-      const value = data[key];
-
-      const fieldSource = configUtils.getSource(value);
-      if (fieldSource)
-        source = fieldSource;
-
-      if (typeof value === `undefined`)
+      const value: any = config[1][key];
+      if (value === null || typeof value === `undefined`)
         continue;
 
       // The plugins have already been loaded at this point
       if (key === `plugins`)
         continue;
 
+      const fieldSource = configUtils.getSource(config);
       // Some environment variables should be ignored when applying the configuration
-      if (source === `<environment>` && IGNORED_ENV_VARIABLES.has(key))
+      if (fieldSource === `<environment>` && IGNORED_ENV_VARIABLES.has(key))
         continue;
 
       // It wouldn't make much sense, would it?
@@ -1507,51 +1506,33 @@ export class Configuration {
       const definition = this.settings.get(key);
       if (!definition) {
         const homeFolder = folderUtils.getHomeFolder();
-        const rcFileFolder = ppath.resolve(source as PortablePath, `..` as PortablePath);
+        // 這裡肯定有點問題
+        const rcFileFolder = ppath.resolve(fieldSource as PortablePath, `..` as PortablePath);
         const isHomeRcFile = homeFolder === rcFileFolder;
 
         if (strict && !isHomeRcFile) {
           throw new UsageError(`Unrecognized or legacy configuration settings found: ${key} - run "yarn config -v" to see the list of settings supported in Yarn`);
         } else {
-          this.invalid.set(key, source);
+          this.invalid.set(key, fieldSource);
           continue;
         }
       }
-
-      if (this.sources.has(key) && !(overwrite || definition.type === SettingsType.MAP || definition.isArray && definition.concatenateValues))
-        continue;
 
       let parsed;
       try {
         parsed = parseValue(this, key, value, definition, folder);
       } catch (error) {
-        error.message += ` in ${formatUtils.pretty(this, source, formatUtils.Type.PATH)}`;
+        // error.message += `parseValue`;
+        error.message += ` in ${formatUtils.pretty(this, fieldSource, formatUtils.Type.PATH)}`;
         throw error;
       }
 
-      if (key === `enableStrictSettings` && source !== `<environment>`) {
+      if (key === `enableStrictSettings` && fieldSource !== `<environment>`) {
         strict = parsed as boolean;
         continue;
       }
-
-      if (definition.type === SettingsType.MAP) {
-        const previousValue = this.values.get(key) as Map<string, any>;
-        this.values.set(key, new Map(overwrite
-          ? [...previousValue, ...parsed as Map<string, any>]
-          : [...parsed as Map<string, any>, ...previousValue],
-        ));
-        this.sources.set(key, `${this.sources.get(key)}, ${source}`);
-      } else if (definition.isArray && definition.concatenateValues) {
-        const previousValue = this.values.get(key) as Array<unknown>;
-        this.values.set(key, overwrite
-          ? [...previousValue, ...parsed as Array<unknown>]
-          : [...parsed as Array<unknown>, ...previousValue],
-        );
-        this.sources.set(key, `${this.sources.get(key)}, ${source}`);
-      } else {
-        this.values.set(key, parsed);
-        this.sources.set(key, source);
-      }
+      this.values.set(key, parsed);
+      this.sources.set(key, fieldSource);
     }
   }
 

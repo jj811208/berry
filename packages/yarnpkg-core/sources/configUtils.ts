@@ -68,8 +68,11 @@ function getNormalized(data: unknown, key: string): ConflictMarkerWithValue {
 
   return normalizeValue(rawValue);
 }
-
-type ResolvedConfig = [string /* Source */, unknown];
+// source maybe
+// 1. path/to/foo/.yarnrc.yml (rcfile)
+// 2. path/to/foo/.yarnrc.yml, /path/to/bar/.yarnrc.yml (multiple rcfiles are merged)
+// 3. <environment> or <cli> or <compat> or <default> (other)
+export type ResolvedConfig = [string /* Source */, unknown];
 
 function resolvedConfig(id: string, value: unknown): ResolvedConfig {
   return [id, value];
